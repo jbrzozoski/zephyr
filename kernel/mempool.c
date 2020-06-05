@@ -58,6 +58,9 @@ int k_mem_pool_alloc(struct k_mem_pool *p, struct k_mem_block *block,
 		end = k_uptime_get() + timeout;
 	}
 
+	// TODO - Log any alloc requests that get here for pool 0 and AREN'T from me...
+	// But I want to know where from?  How?
+
 	while (true) {
 		u32_t level_num, block_num;
 
@@ -166,6 +169,15 @@ K_MEM_POOL_DEFINE(_heap_mem_pool, CONFIG_HEAP_MEM_POOL_MIN_SIZE,
 void *k_malloc(size_t size)
 {
 	return k_mem_pool_malloc(_HEAP_MEM_POOL, size);
+}
+
+void z_sys_mem_pool_dump(struct sys_mem_pool_base * const p);
+
+void k_log_heap_info(void)
+{
+	struct k_mem_pool * const heap = _HEAP_MEM_POOL;
+	struct sys_mem_pool_base * const pool = &heap->base;
+	z_sys_mem_pool_dump(pool);
 }
 
 void *k_calloc(size_t nmemb, size_t size)

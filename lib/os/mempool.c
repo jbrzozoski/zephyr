@@ -10,6 +10,10 @@
 #include <sys/mempool_base.h>
 #include <sys/mempool.h>
 
+#include <logging/log_ctrl.h>
+#include <logging/log.h>
+LOG_MODULE_REGISTER(os_mempool, LOG_LEVEL_INF);
+
 #ifdef CONFIG_MISRA_SANE
 #define LVL_ARRAY_SZ(n) (8 * sizeof(void *) / 2)
 #else
@@ -195,6 +199,7 @@ static void block_free(struct sys_mem_pool_base *p, int level,
 	unsigned int key = pool_irq_lock(p);
 
 	key = bfree_recombine(p, level, lsizes, bn, key);
+    p->n_allocations--;
 	pool_irq_unlock(p, key);
 }
 
@@ -279,6 +284,7 @@ int z_sys_mem_pool_block_alloc(struct sys_mem_pool_base *p, size_t size,
 				pool_irq_unlock(p, key);
 				key = pool_irq_lock(p);
 			}
+            p->n_allocations++;
 			break;
 		}
 	}
@@ -314,6 +320,37 @@ void z_sys_mem_pool_block_free(struct sys_mem_pool_base *p, u32_t level,
 	}
 
 	block_free(p, level, lsizes, block);
+}
+
+void z_sys_mem_pool_dump(struct sys_mem_pool_base * const p)
+{
+	int i;
+    int j;
+	const size_t buflen = p->n_max * p->max_sz;
+    size_t sz = p->max_sz;
+
+    const int key = pool_irq_lock(p);
+    LOG_INF("HEAP max_sz=%d n_max=%d n_levels=%u max_inline_level=%d flags=%x n_allocations=%d",
+            p->max_sz, p->n_max, p->n_levels, p->max_inline_level, p->flags, p->n_allocations);
+
+    for (i = 0; i < p->n_levels; i++) {
+		const int nblocks = buflen / sz;
+        const int nbits = (nblocks + 31)/32;
+        const uint32_t * const bitarray = (i <= p->max_inline_level) ? p->levels[i].bits : p->levels[i].bits_p;
+        int free_node_count = 0;
+        sys_dnode_t *free_node = sys_dlist_peek_head(&p->levels[i].free_list);
+        while (free_node != NULL) {
+            free_node_count++;
+            free_node = sys_dlist_peek_next_no_check(&p->levels[i].free_list, free_node);
+        }
+        LOG_INF("level=%d sz=%u nblocks=%d nbits=%d free_node_count=%d", i, sz, nblocks, nbits, free_node_count);
+        for (j = 0; j < nbits; j++) {
+            LOG_INF("- bits[%d]=%08X", j, bitarray[j]);
+        }
+		sz = WB_DN(sz / 4);
+	}
+
+    pool_irq_unlock(p, key);
 }
 
 /*
